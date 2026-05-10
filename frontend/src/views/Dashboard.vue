@@ -54,11 +54,7 @@
             <div class="card-header">
               <span>月度健康趋势</span>
               <div class="card-extra">
-                 <a-radio-group v-model:value="trendPeriod" size="small">
-                  <a-radio-button value="week">本周</a-radio-button>
-                  <a-radio-button value="month">本月</a-radio-button>
-                  <a-radio-button value="year">全年</a-radio-button>
-                </a-radio-group>
+                 <span style="font-size: 13px; color: rgba(0,0,0,0.45);">基于健康记录按月统计</span>
               </div>
             </div>
           </template>
@@ -73,6 +69,35 @@
             </div>
           </template>
           <div ref="pieChart" style="height: 360px;"></div>
+        </a-card>
+      </a-col>
+    </a-row>
+
+    <a-row :gutter="24" style="margin-top: 24px;">
+      <a-col :span="24">
+        <a-card class="list-card" :bordered="false">
+          <template #title>
+            <div class="card-header">
+              <span>待关注动物</span>
+              <a-tag color="error">{{ attentionAnimals.length }} 只</a-tag>
+            </div>
+          </template>
+          <a-table
+            :dataSource="attentionAnimals"
+            :columns="attentionColumns"
+            :pagination="false"
+            size="small"
+            :customRow="(record) => ({ onClick: () => goToHealth(record), style: 'cursor: pointer;' })"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'name'">
+                <span style="font-weight: 500;">{{ record.name }}</span>
+              </template>
+              <template v-else-if="column.key === 'health'">
+                <a-tag :color="getStatusColor(record.health)">{{ record.health }}</a-tag>
+              </template>
+            </template>
+          </a-table>
         </a-card>
       </a-col>
     </a-row>
@@ -147,7 +172,6 @@ const router = useRouter()
 const animalStore = useAnimalStore()
 const pieChart = ref(null)
 const lineChart = ref(null)
-const trendPeriod = ref('year')
 let pieInstance = null
 let lineInstance = null
 
@@ -159,12 +183,35 @@ const attentionCount = computed(() => {
   return animalStore.animals.filter(a => a.health !== '健康').length
 })
 
+const attentionAnimals = computed(() => {
+  return animalStore.animals
+    .filter(a => a.health !== '健康')
+    .map(a => ({
+      key: a.id,
+      name: a.name,
+      breed: a.breed,
+      health: a.health,
+      lastCheckup: a.lastCheckup
+    }))
+})
+
+const attentionColumns = [
+  { title: '名称', dataIndex: 'name', key: 'name', width: 120 },
+  { title: '品种', dataIndex: 'breed', key: 'breed', width: 140 },
+  { title: '当前状态', dataIndex: 'health', key: 'health', width: 100 },
+  { title: '最近检查日期', dataIndex: 'lastCheckup', key: 'lastCheckup', width: 140, align: 'right' },
+]
+
+const goToHealth = (record) => {
+  router.push({ path: '/health', query: { animalId: record.key } })
+}
+
 const recentHealth = computed(() => {
   return animalStore.healthRecords.slice(-5).reverse().map(r => {
     const animal = animalStore.animals.find(a => a.id === r.animalId)
     return {
       ...r,
-      key: r.id, // AntDV needs unique key
+      key: r.id,
       animalName: animal ? animal.name : '未知'
     }
   })
@@ -182,6 +229,27 @@ const getStatusColor = (status) => {
   if (status === '一般') return 'warning'
   return 'error'
 }
+
+const monthlyHealthTrend = computed(() => {
+  const records = animalStore.healthRecords
+  const monthMap = new Map()
+
+  records.forEach(r => {
+    const d = new Date(r.date)
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    if (!monthMap.has(key)) {
+      monthMap.set(key, { total: 0, healthy: 0 })
+    }
+    const entry = monthMap.get(key)
+    entry.total += 1
+    if (r.status === '健康') entry.healthy += 1
+  })
+
+  const sorted = [...monthMap.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  const labels = sorted.map(([k]) => k)
+  const values = sorted.map(([, v]) => v.total > 0 ? Math.round((v.healthy / v.total) * 100) : 0)
+  return { labels, values }
+})
 
 const initCharts = () => {
   if (pieInstance) pieInstance.dispose()
@@ -223,27 +291,37 @@ const initCharts = () => {
     ]
   })
 
-  // Line Chart Data (Mock trend)
+  const { labels, values } = monthlyHealthTrend.value
+
   lineInstance.setOption({
-    tooltip: { trigger: 'axis' },
+    tooltip: {
+      trigger: 'axis',
+      formatter: (params) => {
+        const p = params[0]
+        return `${p.name}<br/>健康率：${p.value}%`
+      }
+    },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
     xAxis: {
       type: 'category',
       boundaryGap: false,
-      data: ['1月', '2月', '3月', '4月', '5月', '6月', '7月'],
+      data: labels,
       axisLine: { lineStyle: { color: '#f0f0f0' } },
       axisLabel: { color: 'rgba(0,0,0,0.45)' }
     },
     yAxis: {
       type: 'value',
+      min: 0,
+      max: 100,
+      axisLabel: { formatter: '{value}%' },
       splitLine: { lineStyle: { type: 'dashed', color: '#f0f0f0' } }
     },
     series: [
       {
-        name: '健康指数',
+        name: '健康率',
         type: 'line',
         smooth: true,
-        data: [85, 88, 87, 90, 92, 89, 95],
+        data: values,
         itemStyle: { color: '#1890ff' },
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [

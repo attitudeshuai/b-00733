@@ -99,13 +99,15 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import { useAnimalStore } from '../stores/animal'
 import { useUserStore } from '../stores/user'
+import { useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { SearchOutlined, ReloadOutlined, PlusOutlined } from '@ant-design/icons-vue'
 import dayjs from 'dayjs'
 
+const route = useRoute()
 const animalStore = useAnimalStore()
 const userStore = useUserStore()
 const selectedAnimal = ref(undefined)
@@ -218,6 +220,13 @@ const handleDelete = (id) => {
     }
   })
 }
+
+onMounted(() => {
+  const animalId = route.query.animalId
+  if (animalId) {
+    selectedAnimal.value = Number(animalId)
+  }
+})
 </script>
 
 <style scoped>
