@@ -53,13 +53,6 @@
           <template #title>
             <div class="card-header">
               <span>月度健康趋势</span>
-              <div class="card-extra">
-                 <a-radio-group v-model:value="trendPeriod" size="small">
-                  <a-radio-button value="week">本周</a-radio-button>
-                  <a-radio-button value="month">本月</a-radio-button>
-                  <a-radio-button value="year">全年</a-radio-button>
-                </a-radio-group>
-              </div>
             </div>
           </template>
           <div ref="lineChart" style="height: 360px;"></div>
@@ -126,6 +119,33 @@
         </a-card>
       </a-col>
     </a-row>
+
+    <a-row :gutter="24" style="margin-top: 24px;">
+      <a-col :span="24">
+        <a-card class="list-card" :bordered="false">
+          <template #title>
+            <div class="card-header">
+              <span>待关注动物</span>
+              <a class="more-link" @click="$router.push('/health')">查看全部</a>
+            </div>
+          </template>
+          <a-table 
+            :dataSource="attentionAnimals" 
+            :columns="attentionColumns" 
+            :pagination="false" 
+            size="small"
+            :customRow="customRow"
+            :rowClassName="() => 'clickable-row'"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'status'">
+                 <a-tag :color="getStatusColor(record.health)">{{ record.health }}</a-tag>
+              </template>
+            </template>
+          </a-table>
+        </a-card>
+      </a-col>
+    </a-row>
   </div>
 </template>
 
@@ -147,7 +167,6 @@ const router = useRouter()
 const animalStore = useAnimalStore()
 const pieChart = ref(null)
 const lineChart = ref(null)
-const trendPeriod = ref('year')
 let pieInstance = null
 let lineInstance = null
 
@@ -177,10 +196,50 @@ const healthColumns = [
   { title: '检查日期', dataIndex: 'date', key: 'date', width: 120, align: 'right' },
 ]
 
+const attentionColumns = [
+  { title: '动物名称', dataIndex: 'name', key: 'name', width: 150 },
+  { title: '品种', dataIndex: 'breed', key: 'breed', width: 150 },
+  { title: '当前状态', key: 'status', width: 100 },
+  { title: '最近检查日期', dataIndex: 'lastCheckup', key: 'lastCheckup', width: 180, align: 'right' },
+]
+
+const attentionAnimals = computed(() => {
+  return animalStore.animals.filter(a => a.health !== '健康').map(a => ({ ...a, key: a.id }))
+})
+
+const customRow = (record) => {
+  return {
+    onClick: () => {
+      router.push({ path: '/health', query: { animalId: record.id } })
+    }
+  }
+}
+
 const getStatusColor = (status) => {
   if (status === '健康') return 'success'
   if (status === '一般') return 'warning'
   return 'error'
+}
+
+const getTrendData = () => {
+  const now = new Date()
+  const year = now.getFullYear()
+  const months = []
+  const data = []
+  
+  for (let i = 0; i < 12; i++) {
+    const monthStr = `${year}-${String(i + 1).padStart(2, '0')}`
+    months.push(`${i + 1}月`)
+    const records = animalStore.healthRecords.filter(r => r.date.startsWith(monthStr))
+    if (records.length > 0) {
+      const healthy = records.filter(r => r.status === '健康').length
+      data.push(Math.round((healthy / records.length) * 100))
+    } else {
+      data.push(null)
+    }
+  }
+  
+  return { months, data }
 }
 
 const initCharts = () => {
@@ -223,34 +282,50 @@ const initCharts = () => {
     ]
   })
 
-  // Line Chart Data (Mock trend)
+  const { months, data } = getTrendData()
+
   lineInstance.setOption({
-    tooltip: { trigger: 'axis' },
+    tooltip: { 
+      trigger: 'axis',
+      formatter: (params) => {
+        const p = params[0]
+        if (p.value === null || p.value === undefined) {
+          return `${p.name}<br/>暂无数据`
+        }
+        return `${p.name}<br/>健康率: ${p.value}%`
+      }
+    },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
     xAxis: {
       type: 'category',
       boundaryGap: false,
-      data: ['1月', '2月', '3月', '4月', '5月', '6月', '7月'],
+      data: months,
       axisLine: { lineStyle: { color: '#f0f0f0' } },
       axisLabel: { color: 'rgba(0,0,0,0.45)' }
     },
     yAxis: {
       type: 'value',
-      splitLine: { lineStyle: { type: 'dashed', color: '#f0f0f0' } }
+      min: 0,
+      max: 100,
+      splitLine: { lineStyle: { type: 'dashed', color: '#f0f0f0' } },
+      axisLabel: {
+        formatter: '{value}%'
+      }
     },
     series: [
       {
-        name: '健康指数',
+        name: '健康率',
         type: 'line',
         smooth: true,
-        data: [85, 88, 87, 90, 92, 89, 95],
+        data: data,
         itemStyle: { color: '#1890ff' },
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
             { offset: 0, color: 'rgba(24,144,255,0.3)' },
             { offset: 1, color: 'rgba(24,144,255,0.01)' }
           ])
-        }
+        },
+        connectNulls: true
       }
     ]
   })
@@ -382,5 +457,13 @@ onUnmounted(() => {
   justify-content: center;
   font-size: 20px;
   margin-bottom: 8px;
+}
+
+:deep(.clickable-row) {
+  cursor: pointer;
+}
+
+:deep(.clickable-row:hover > td) {
+  background-color: #e6f7ff !important;
 }
 </style>
