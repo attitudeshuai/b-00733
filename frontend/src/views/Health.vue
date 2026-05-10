@@ -99,16 +99,24 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onMounted } from 'vue'
 import { useAnimalStore } from '../stores/animal'
 import { useUserStore } from '../stores/user'
 import { message, Modal } from 'ant-design-vue'
 import { SearchOutlined, ReloadOutlined, PlusOutlined } from '@ant-design/icons-vue'
+import { useRoute } from 'vue-router'
 import dayjs from 'dayjs'
 
+const route = useRoute()
 const animalStore = useAnimalStore()
 const userStore = useUserStore()
 const selectedAnimal = ref(undefined)
+
+onMounted(() => {
+  if (route.query.animalId) {
+    selectedAnimal.value = Number(route.query.animalId)
+  }
+})
 const dialogVisible = ref(false)
 const currentPage = ref(1)
 const pageSize = ref(10)
