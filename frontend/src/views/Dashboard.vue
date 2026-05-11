@@ -126,11 +126,45 @@
         </a-card>
       </a-col>
     </a-row>
+
+    <a-row :gutter="24" style="margin-top: 24px;">
+      <a-col :span="24">
+        <a-card class="attention-card" :bordered="false">
+          <template #title>
+            <div class="card-header">
+              <span>待关注动物</span>
+              <a class="more-link" @click="$router.push('/animals')">查看全部</a>
+            </div>
+          </template>
+          <a-table 
+            :dataSource="attentionAnimals" 
+            :columns="attentionColumns" 
+            :pagination="false" 
+            size="small"
+            :custom-row="(record) => ({
+              onClick: () => goToHealthRecord(record.id)
+            })"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'health'">
+                 <a-tag :color="getStatusColor(record.health)">{{ record.health }}</a-tag>
+              </template>
+              <template v-else-if="column.key === 'name'">
+                <span style="font-weight: 500;">{{ record.name }}</span>
+              </template>
+            </template>
+          </a-table>
+          <div v-if="attentionAnimals.length === 0" class="empty-tip">
+            <span>暂无需要关注的动物</span>
+          </div>
+        </a-card>
+      </a-col>
+    </a-row>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed, nextTick, onUnmounted } from 'vue'
+import { ref, onMounted, computed, nextTick, onUnmounted, watch } from 'vue'
 import { useAnimalStore } from '../stores/animal'
 import * as echarts from 'echarts'
 import { 
@@ -164,11 +198,27 @@ const recentHealth = computed(() => {
     const animal = animalStore.animals.find(a => a.id === r.animalId)
     return {
       ...r,
-      key: r.id, // AntDV needs unique key
+      key: r.id,
       animalName: animal ? animal.name : '未知'
     }
   })
 })
+
+const attentionAnimals = computed(() => {
+  return animalStore.animals
+    .filter(a => a.health !== '健康')
+    .map(a => ({
+      ...a,
+      key: a.id
+    }))
+})
+
+const attentionColumns = [
+  { title: '名称', dataIndex: 'name', key: 'name', width: 120 },
+  { title: '品种', dataIndex: 'breed', key: 'breed', width: 150 },
+  { title: '当前状态', dataIndex: 'health', key: 'health', width: 120 },
+  { title: '最近检查日期', dataIndex: 'lastCheckup', key: 'lastCheckup', align: 'right' }
+]
 
 const healthColumns = [
   { title: '动物名称', dataIndex: 'animalName', key: 'animalName', width: 120 },
@@ -181,6 +231,59 @@ const getStatusColor = (status) => {
   if (status === '健康') return 'success'
   if (status === '一般') return 'warning'
   return 'error'
+}
+
+const goToHealthRecord = (animalId) => {
+  router.push({ path: '/health', query: { animalId } })
+}
+
+const getWeekKey = (date) => {
+  const d = new Date(date)
+  const day = d.getDay()
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1)
+  const monday = new Date(d.setDate(diff))
+  return `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`
+}
+
+const calculateHealthRate = (period) => {
+  const records = animalStore.healthRecords
+  const stats = {}
+  const now = new Date()
+
+  records.forEach(record => {
+    const date = new Date(record.date)
+    let key
+    let label
+
+    if (period === 'week') {
+      key = getWeekKey(date)
+      const monday = new Date(key)
+      label = `${monday.getMonth() + 1}/${monday.getDate()}周`
+    } else if (period === 'month') {
+      key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
+      label = `${date.getMonth() + 1}月`
+    } else {
+      key = `${date.getFullYear()}`
+      label = `${date.getFullYear()}年`
+    }
+    
+    if (!stats[key]) {
+      stats[key] = { total: 0, healthy: 0, label }
+    }
+    stats[key].total++
+    if (record.status === '健康') {
+      stats[key].healthy++
+    }
+  })
+
+  const sortedKeys = Object.keys(stats).sort()
+  const labels = sortedKeys.map(k => stats[k].label)
+  const rates = sortedKeys.map(k => {
+    const s = stats[k]
+    return Math.round((s.healthy / s.total) * 100)
+  })
+
+  return { labels, rates }
 }
 
 const initCharts = () => {
@@ -223,27 +326,31 @@ const initCharts = () => {
     ]
   })
 
-  // Line Chart Data (Mock trend)
+  // Line Chart Data - Calculate from actual health records
+  const healthTrendData = calculateHealthRate(trendPeriod.value)
   lineInstance.setOption({
-    tooltip: { trigger: 'axis' },
+    tooltip: { trigger: 'axis', formatter: '{b}: {c}%' },
     grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
     xAxis: {
       type: 'category',
       boundaryGap: false,
-      data: ['1月', '2月', '3月', '4月', '5月', '6月', '7月'],
+      data: healthTrendData.labels,
       axisLine: { lineStyle: { color: '#f0f0f0' } },
       axisLabel: { color: 'rgba(0,0,0,0.45)' }
     },
     yAxis: {
       type: 'value',
+      min: 0,
+      max: 100,
+      axisLabel: { formatter: '{value}%' },
       splitLine: { lineStyle: { type: 'dashed', color: '#f0f0f0' } }
     },
     series: [
       {
-        name: '健康指数',
+        name: '健康率',
         type: 'line',
         smooth: true,
-        data: [85, 88, 87, 90, 92, 89, 95],
+        data: healthTrendData.rates,
         itemStyle: { color: '#1890ff' },
         areaStyle: {
           color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
@@ -256,10 +363,23 @@ const initCharts = () => {
   })
 }
 
+const updateLineChart = () => {
+  if (!lineInstance) return
+  const healthTrendData = calculateHealthRate(trendPeriod.value)
+  lineInstance.setOption({
+    xAxis: { data: healthTrendData.labels },
+    series: [{ data: healthTrendData.rates }]
+  })
+}
+
 const handleResize = () => {
   pieInstance && pieInstance.resize()
   lineInstance && lineInstance.resize()
 }
+
+watch(trendPeriod, () => {
+  updateLineChart()
+})
 
 onMounted(() => {
   nextTick(() => {
@@ -324,8 +444,23 @@ onUnmounted(() => {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
-.chart-card, .list-card, .quick-nav-card {
+.chart-card, .list-card, .quick-nav-card, .attention-card {
   border-radius: 2px;
+}
+
+.attention-card :deep(.ant-table-tbody > tr) {
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.attention-card :deep(.ant-table-tbody > tr:hover) {
+  background-color: #e6f7ff;
+}
+
+.empty-tip {
+  text-align: center;
+  padding: 40px 0;
+  color: rgba(0,0,0,0.25);
 }
 
 .card-header {
